@@ -1,0 +1,84 @@
+---
+title: "tpm_predictathon_methods"
+output: pdf_document
+---
+
+# **Introduction:**
+
+Below contains a description of methods used by Timothy Mulderrig for his submission for the 2026 T3 Prediction Competition. All scripts are written for R. 
+
+# **GitHub Project Structure:**
+
+The code and data for this analysis can be found at [https://github.com/tmulderrig/T3_predictathon.git](https://github.com/tmulderrig/T3_predictathon.git). The repository contains the following subdirectories containing the following relevant code and data:
+
+## [Data](https://github.com/tmulderrig/T3_predictathon/tree/main/Data)
+### *R Script*
+1) **T3_trial_import_and_filtering.Rmd:** Code to import all trials from T3 and filter trials to include only ones meeting certain criteria
+2) **Phenotypic_data_import.Rmd:** Code to pull phenotypic observations from all selected trials
+3) **Genomic_data_import.Rmd:** Code to pull variant call files to gather genotypic data for accessions grown in selected trials
+4) **Environmental_data_import.Rmd:** Code to import environmental data from EnvRtype for selected trials
+
+### *Data Output Files*
+1) **drone_traits_lookup.csv** Data frame of drone trait names and identifiers
+2) **EnvRtype_output.csv** Data frame of weather data for training set candidate trials
+3) **genotyped_phenotyped_trials.csv** Data frame of metadata for candidate training set trials from the trial filtering script
+4) **genotyped_trial_phenotypes.csv** Data frame of phenotypes for training set data from the phenotypic import script
+5) **location_soil_data.csv** Data frame of soil data from SoilGrids for training set trial locations
+6) **processed_weather_data.csv** Data frame of processed weather data for training set trials
+7) **selected_geno_projects.csv** Data frame of T3 genotyping_project_ids for projects containing accessions in training or test set trials
+8) **test_location_soil_data.csv** Data frame of soil data from locations of test set trials
+9) **test_trial_metadata.csv** Data frame of metadata for test set trials
+10) **testset_EnvRtype_output.csv** Data frame of weather data for test set trials
+11) **testset_processed_weather_data.csv** Data frame of processed weather data for test set trials
+12) **trial_geno_search_parallel_safe_output.csv** Data frame matching accessions from all training set trials to a genotyping protocol or project
+
+## [Analysis](https://github.com/tmulderrig/T3_predictathon/tree/main/Analysis)
+### *R Script*
+1) **enviromic_analysis.Rmd** Code to process and summarize weather data, cluster environments, and create the Enviromental Similarity matrix between trials
+2) **genomic_analysis.Rmd** Code to process marker vcf files, construct a combined GRM of all trial accessions, cluster trials genetically, and create the Genomic Similarity matrix between trials
+
+### *Data Output Files*
+1) **Trial_W_mat.csv** Trial-wise environmental similarity matrix of test and training set trials
+2) **Trial_Gmat.rds** Trial-wise genomic similarity matrix of test and training set trials
+3) **trial_env_distances** Matrix of distances of trials in the environmental PCA space
+
+
+## [figures](https://github.com/tmulderrig/T3_predictathon/tree/main/figures)
+1) **W_rel_heatmap.png**
+2) **env_pca.png**
+3) **env_var_corr_plot.png**
+
+## [Prediction Models](https://github.com/tmulderrig/T3_predictathon/tree/main/Prediction%20Models)
+1) **GBLUP_predictions.Rmd** Code for training set data selection, base GBLUP prediction model, and the multi-kernel BLUP prediction model that was ultimately used to generate submitted predictions under CV0 and CV00 scenarios. Leave-One-Out Cross Validation also performed.
+
+## [Predictions](https://github.com/tmulderrig/T3_predictathon/tree/main/Predictions)
+• This folder contains the submitted predictions with the appropriate file structure for the T3 predictathon submission form.
+
+# **Methods:**
+
+## Data Pulling
+
+Data for this project were all queried using API-based services targetting public databases (T3/Wheat and NASA POWER). In  **T3_trial_import_and_filtering.Rmd:**, code from the **BrAPI.R** package (BrAPIConnection\$post("search/studies"),  BrAPIConnection\$wizard) is run to pull all recorded trials on the T3 database as candidates for training data. Trials are filtered based on some key criteria. 
+
+### Phenotypic Data
+
+In **Phenotypic_data_import.Rmd:**, phenotypic observations for those selected trials from **T3_trial_import_and_filtering.Rmd:** were pulled from T3/Wheat using BrAPI.R::BrAPIConnection\$post("search/observations"). 
+
+### Genomic Data
+
+In **Genomic_data_import.Rmd:**, genomic data for all genotyped accessions within any of the selected training set candidate trials and the test set were pulled from T3/Wheat using BrAPI.R. First, a list of genotyping projects in T3 that contain our set of accessions was determined using BrAPI.R::BrAPIConnection\$wizard("genotyping_projects"). Next, a minimal set of genotyping projects to fully cover all genotyped accessions was identified. Then, using BrAPI.R::BrAPIConnection$vcf_archived(), vcf marker files for the selected genotyping projects were pulled.   
+
+### Enviromic Data
+
+In **Environmental_data_import.Rmd:**, trial weather data was pulled from NASA POWER utilizing the EnvRtype package. Location data, planting date, and harvest date were fed into EnvRtype::get_weather() function to pull a set of weather parameter daily values across the entire growing season for each trial in the test set and all of the candidate trials for training data. 
+
+## Genomic and Environmental Kernels
+
+For my modeling approach, create genomic and environmental kernels for two purposes: selecting the appropriate training data for each given test set and fitting a multi-kernel BLUP model to incorporate both genomic and environmental information into our predictions. In **enviromic_analysis.Rmd**, weather data was first cleaned by binning data based on predicted growth stage for the wheat plants from a Growing Degree Day-based growth stage estimate. Then, binned weather data was piped into the EnvRtype::W_matrix() and then EnvRtype::env_kernel() functions to estimate environmental similarities between all trials in the training data and test set. In **genomic_analysis.Rmd**, a genomic relationship matrix containing all genotyped accessions in the training data and test set was constructed using a tuned set of functions to run a Wishart EM algorithm developed by Deniz Akdemir [https://github.com/denizakdemir/wishartem/blob/main/wishartem/em_covariance_combiner.R](https://github.com/denizakdemir/wishartem/blob/main/wishartem/em_covariance_combiner.R). Utilizing this combined GRM, trial-wise genomic similarities were estimated by averaging the estimated relationships in the GRM from all pairs of accessions on each pair of trials.   
+
+## Prediction Modeling 
+
+In **GBLUP_predictions.Rmd**, the modeling approach is described. First, in the Construct Training Datasets function code chunk,the trial-wise genomic and environmental similarity matrices were used to select the top 15 most similar trials genomically and environmentally to each given test set trial to be used as model training data. In the multikernel GBLUP function code chunk, a function was developed that looped through all test set trials and fit a multikernel BLUP model prediction for the genotyped accessions in that trial using the R package sommer. The model fit was: $$ y \sim \mathbf{1}\mu + \mathbf{Z_G}\mathbf{u_G} + \mathbf{Z_E}\mathbf{u_E }+ \mathbf{\epsilon}$$ where $$\mathbf{u_G} \sim \mathcal{N}(0,\mathbf{GRM_{subset}}
+*\sigma_G^2)$$ $$\mathbf{u_E} \sim \mathcal{N}(0,\mathbf{W_{subset}}*\sigma_E^2)$$ and $$\mathbf{\epsilon} \sim \mathcal{N}(0,\mathbf{I}* \sigma_{\epsilon}^2)$$. Leave-One-Out cross validation among the selected training set trials was conducted to evaluate model performance. The process was repeated again under the CV00 subheading for the CV00 scenario, after first filtering out any observations of accessions from the test set that were also observed in the training data.
+
+
